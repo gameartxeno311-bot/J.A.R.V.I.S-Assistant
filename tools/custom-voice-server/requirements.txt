@@ -1,3 +1,4 @@
-# Free & open-source, unlimited local voice cloning stack.
+# Local Coqui TTS / XTTS-v2 server for J.A.R.V.I.S.
+# Python 3.10 or 3.11 recommended on Windows.
 TTS==0.22.0
 flask==3.0.3
