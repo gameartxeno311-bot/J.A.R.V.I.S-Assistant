@@ -27,7 +27,6 @@ export default function JarvisPage() {
     }).catch(() => setError("Unable to load J.A.R.V.I.S. Check PostgreSQL and the server logs."));
 
     const loadVoices = () => setVoices(window.speechSynthesis?.getVoices() ?? []);
-    loadVoices();
     window.speechSynthesis?.addEventListener("voiceschanged", loadVoices);
     return () => window.speechSynthesis?.removeEventListener("voiceschanged", loadVoices);
   }, []);
