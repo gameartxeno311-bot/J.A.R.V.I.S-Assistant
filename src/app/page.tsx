@@ -33,9 +33,22 @@ export default function JarvisPage() {
   }, []);
 
   useEffect(() => {
-    if (!settings?.obsidianVaultPath) return setStatus({ ok: false, error: "Not connected" });
-    fetch("/api/jarvis/vault").then(r => r.json()).then(setStatus)
-      .catch(() => setStatus({ ok: false, error: "Unable to check vault" }));
+    if (!settings?.obsidianVaultPath) return;
+
+    let cancelled = false;
+
+    fetch("/api/jarvis/vault")
+      .then(r => r.json())
+      .then(result => {
+        if (!cancelled) setStatus(result);
+      })
+      .catch(() => {
+        if (!cancelled) setStatus({ ok: false, error: "Unable to check vault" });
+      });
+
+    return () => {
+      cancelled = true;
+    };
   }, [settings?.obsidianVaultPath]);
 
   async function save(patch: Partial<JarvisSettingsDTO>) {
@@ -122,7 +135,7 @@ export default function JarvisPage() {
           </form>
         </section>
       </div>
-      {settings && <SettingsDrawer open={settingsOpen} onClose={() => setSettingsOpen(false)} settings={settings} vaultStatus={status} voices={voices} profiles={profiles} onSave={save} onUploadVoice={uploadVoice} onDeleteVoice={deleteVoice} onTestVoice={() => speak("Settings are working, sir. I am ready.")} />}
+      {settings && <SettingsDrawer open={settingsOpen} onClose={() => setSettingsOpen(false)} settings={settings} vaultStatus={status ?? (settings?.obsidianVaultPath ? null : { ok: false, error: "Not connected" })} voices={voices} profiles={profiles} onSave={save} onUploadVoice={uploadVoice} onDeleteVoice={deleteVoice} onTestVoice={() => speak("Settings are working, sir. I am ready.")} />}
     </main>
   );
 }
