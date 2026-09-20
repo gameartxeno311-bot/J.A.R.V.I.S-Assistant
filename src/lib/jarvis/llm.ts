@@ -120,15 +120,37 @@ export async function generateReply(
     { name: "gemini", run: () => callGemini(messages) },
   ];
 
+  let ollamaSetupError: "unreachable" | "model-missing" | null = null;
+
   for (const provider of providers) {
     try {
       const reply = await provider.run();
       if (reply && reply.trim()) return { reply: reply.trim(), provider: provider.name };
     } catch (err) {
-      if (err instanceof LlmSetupError) continue;
+      if (err instanceof LlmSetupError) {
+        if (provider.name === "ollama") {
+          if (err.message === "ollama-model-missing") ollamaSetupError = "model-missing";
+          if (err.message === "ollama-unreachable") ollamaSetupError = "unreachable";
+        }
+        continue;
+      }
       return { reply: `I hit a snag talking to ${provider.name}: ${(err as Error).message}`, provider: `${provider.name}-error` };
     }
   }
 
+  if (ollamaSetupError === "model-missing") {
+    const model = settings.ollamaModel || "llama3.1";
+    return {
+      reply: `Ollama is running, but the model "${model}" is not installed. Run \`ollama pull ${model}\` and try again.`,
+      provider: "ollama-setup",
+    };
+  }
+  if (ollamaSetupError === "unreachable") {
+    const url = settings.ollamaUrl || "http://127.0.0.1:11434";
+    return {
+      reply: `I cannot reach Ollama at ${url}. Make sure Ollama is running, then try \`ollama serve\`.`,
+      provider: "ollama-setup",
+    };
+  }
   return { reply: SETUP_HELP, provider: "none" };
 }
