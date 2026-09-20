@@ -1,5 +1,5 @@
 @echo off
-setlocal enabledelayedexpansion
+setlocal
 title J.A.R.V.I.S Launcher
 cd /d "%~dp0"
 
@@ -9,7 +9,7 @@ echo ============================================
 
 where node >nul 2>nul
 if errorlevel 1 (
-  echo [ERROR] Node.js was not found on PATH. Install it from https://nodejs.org and try again.
+  echo [ERROR] Node.js was not found on PATH.
   pause
   exit /b 1
 )
@@ -27,7 +27,18 @@ if not exist "node_modules" (
 
 echo Syncing database schema ...
 call npx drizzle-kit push
-if errorlevel 1 echo [WARN] Could not sync the database schema.
+if errorlevel 1 (
+  echo [ERROR] Database schema sync failed. Make sure PostgreSQL is running and DATABASE_URL is correct.
+  goto :fail
+)
+
+echo Running TypeScript checks ...
+call npm run typecheck
+if errorlevel 1 goto :fail
+
+echo Running lint ...
+call npm run lint
+if errorlevel 1 goto :fail
 
 echo Building J.A.R.V.I.S ...
 call npm run build
@@ -40,6 +51,6 @@ goto :eof
 
 :fail
 echo.
-echo [ERROR] Setup failed. Scroll up for details.
+echo [ERROR] Setup or validation failed. Scroll up for details.
 pause
 exit /b 1
