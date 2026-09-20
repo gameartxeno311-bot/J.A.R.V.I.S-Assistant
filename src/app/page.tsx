@@ -8,7 +8,7 @@ const memories = ["Project planning","Development environment setup","J.A.R.V.I.
 
 export default function JarvisPage() {
   const [settingsOpen,setSettingsOpen]=useState(false),[settings,setSettings]=useState<JarvisSettingsDTO|null>(null),[messages,setMessages]=useState<JarvisMessage[]>([]),[voices,setVoices]=useState<SpeechSynthesisVoice[]>([]),[profiles,setProfiles]=useState<VoiceProfile[]>([]),[status,setStatus]=useState<VaultStatus|null>(null),[input,setInput]=useState(""),[busy,setBusy]=useState(false),[error,setError]=useState(""),[listening,setListening]=useState(false),[playing,setPlaying]=useState(false);
-  const userName=settings?.userName||"User";
+  const userName="User";
   const greeting=useMemo(()=>{const h=new Date().getHours();return h<12?"Good morning":h<18?"Good afternoon":"Good evening"},[]);
   useEffect(()=>{Promise.all([fetch("/api/jarvis/settings").then(r=>r.json()),fetch("/api/jarvis").then(r=>r.json()),fetch("/api/jarvis/voices").then(r=>r.json())]).then(([s,m,p])=>{setSettings(s);setMessages(Array.isArray(m)?m:[]);setProfiles(Array.isArray(p)?p:[])}).catch(()=>setError("Unable to load J.A.R.V.I.S. Check PostgreSQL and the server logs."));const loadVoices=()=>setVoices(window.speechSynthesis?.getVoices()??[]);loadVoices();window.speechSynthesis?.addEventListener("voiceschanged",loadVoices);return()=>window.speechSynthesis?.removeEventListener("voiceschanged",loadVoices)},[]);
   useEffect(()=>{if(!settings?.obsidianVaultPath)return;let cancelled=false;fetch("/api/jarvis/vault").then(r=>r.json()).then(x=>{if(!cancelled)setStatus(x)}).catch(()=>{if(!cancelled)setStatus({ok:false,error:"Unable to check vault"})});return()=>{cancelled=true}},[settings?.obsidianVaultPath]);
