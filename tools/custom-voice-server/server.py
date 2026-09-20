@@ -40,9 +40,8 @@ def speak():
     if not reference:
         return jsonify({"error": "Reference voice not found. Upload a voice sample in J.A.R.V.I.S. Settings or set REFERENCE_VOICE."}), 400
     try:
-        output = io.BytesIO()
-        get_tts().tts_to_file(text=text[:10000], speaker_wav=str(reference), language=language, file_path=output)
-        output.seek(0)
+        output = Path(__file__).with_name("generated.wav")
+        get_tts().tts_to_file(text=text[:10000], speaker_wav=str(reference), language=language, file_path=str(output))
         return send_file(output, mimetype="audio/wav", download_name="jarvis-tts.wav")
     except Exception as error:
         app.logger.exception("XTTS synthesis failed")
