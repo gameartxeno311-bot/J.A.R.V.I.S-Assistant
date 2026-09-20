@@ -114,10 +114,10 @@ export async function generateReply(
   settings: LlmSettings,
 ): Promise<{ reply: string; provider: string }> {
   const providers: Array<{ name: string; run: () => Promise<string> }> = [
+    { name: "ollama", run: () => callOllama(messages, settings) },
     { name: "openai", run: () => callOpenAI(messages) },
     { name: "anthropic", run: () => callAnthropic(messages) },
     { name: "gemini", run: () => callGemini(messages) },
-    { name: "ollama", run: () => callOllama(messages, settings) },
   ];
 
   for (const provider of providers) {
