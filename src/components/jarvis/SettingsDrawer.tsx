@@ -50,10 +50,46 @@ export function SettingsDrawer({
           <h3 className="mb-2 text-sm font-semibold uppercase tracking-wider text-cyan-400">Obsidian Memory</h3>
           <p className="mb-2 text-xs text-slate-400">Point Jarvis at your Obsidian vault folder. Every conversation is automatically appended as markdown notes under a “Jarvis” folder inside it.</p>
           <input value={vaultPath} onChange={(e) => setVaultPath(e.target.value)} placeholder="e.g. C:\Users\you\Documents\MyVault" className="w-full rounded-lg border border-slate-700 bg-slate-900 px-3 py-2 text-sm outline-none focus:border-cyan-500" />
-          <div className="mt-2 flex items-center justify-between">
+          <div className="mt-2 flex items-center justify-between gap-2">
             <span className={`text-xs ${vaultStatus?.ok ? "text-emerald-400" : "text-amber-400"}`}>{vaultStatus?.ok ? "● Connected" : `● ${vaultStatus?.error ?? "Not connected"}`}</span>
-            <button disabled={saving} onClick={async () => { setSaving(true); await onSave({ obsidianVaultPath: vaultPath }); setSaving(false); }} className="rounded-lg bg-cyan-600 px-3 py-1 text-xs font-medium text-white hover:bg-cyan-500 disabled:opacity-50">Save</button>
+            <div className="flex gap-2">
+              <button
+                disabled={saving || !vaultPath.trim()}
+                onClick={async () => {
+                  setSaving(true);
+                  try {
+                    await onSave({ obsidianVaultPath: vaultPath.trim() });
+                    const response = await fetch("/api/jarvis/vault", { method: "POST" });
+                    const result = await response.json();
+                    if (!response.ok || !result.ok) throw new Error(result.error || "Could not connect to vault");
+                  } finally {
+                    setSaving(false);
+                  }
+                }}
+                className="rounded-lg bg-cyan-600 px-3 py-1 text-xs font-medium text-white hover:bg-cyan-500 disabled:opacity-50"
+              >
+                Connect &amp; Test
+              </button>
+              <button
+                disabled={saving || !vaultPath.trim()}
+                onClick={async () => {
+                  setSaving(true);
+                  try {
+                    await onSave({ obsidianVaultPath: vaultPath.trim() });
+                  } finally {
+                    setSaving(false);
+                  }
+                }}
+                className="rounded-lg border border-slate-700 bg-slate-900 px-3 py-1 text-xs font-medium text-slate-300 hover:bg-slate-800 disabled:opacity-50"
+              >
+                Save
+              </button>
+            </div>
           </div>
+          <p className="mt-2 text-[11px] leading-4 text-slate-500">
+            Example: <code>C:\Users\YourName\Documents\MyVault</code>. J.A.R.V.I.S. will create
+            <code className="mx-1 rounded bg-slate-800 px-1">Jarvis/</code> inside the vault and store memory as Markdown.
+          </p>
         </section>
 
         <section className="mb-8">
