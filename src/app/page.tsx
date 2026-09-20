@@ -1,20 +1,30 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { FormEvent, useEffect, useState } from "react";
 import { SettingsDrawer } from "@/components/jarvis/SettingsDrawer";
-import type { JarvisSettingsDTO, VaultStatus, VoiceProfile } from "@/lib/jarvis/types";
+import type { JarvisMessage, JarvisSettingsDTO, VaultStatus, VoiceProfile } from "@/lib/jarvis/types";
 
 export default function JarvisPage() {
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [settings, setSettings] = useState<JarvisSettingsDTO | null>(null);
+  const [messages, setMessages] = useState<JarvisMessage[]>([]);
   const [voices, setVoices] = useState<SpeechSynthesisVoice[]>([]);
+  const [profiles, setProfiles] = useState<VoiceProfile[]>([]);
   const [status, setStatus] = useState<VaultStatus | null>(null);
+  const [input, setInput] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState("");
 
   useEffect(() => {
-    fetch("/api/jarvis/settings")
-      .then((r) => r.json())
-      .then(setSettings)
-      .catch(() => setSettings(null));
+    Promise.all([
+      fetch("/api/jarvis/settings").then(r => r.json()),
+      fetch("/api/jarvis").then(r => r.json()),
+      fetch("/api/jarvis/voices").then(r => r.json()),
+    ]).then(([s, m, p]) => {
+      setSettings(s);
+      setMessages(Array.isArray(m) ? m : []);
+      setProfiles(Array.isArray(p) ? p : []);
+    }).catch(() => setError("Unable to load J.A.R.V.I.S. Check PostgreSQL and the server logs."));
 
     const loadVoices = () => setVoices(window.speechSynthesis?.getVoices() ?? []);
     loadVoices();
@@ -23,30 +33,41 @@ export default function JarvisPage() {
   }, []);
 
   useEffect(() => {
-    if (!settings?.obsidianVaultPath) {
-      setStatus({ ok: false, error: "Not connected" });
-      return;
-    }
-    fetch("/api/jarvis/vault")
-      .then((r) => r.json())
-      .then(setStatus)
+    if (!settings?.obsidianVaultPath) return setStatus({ ok: false, error: "Not connected" });
+    fetch("/api/jarvis/vault").then(r => r.json()).then(setStatus)
       .catch(() => setStatus({ ok: false, error: "Unable to check vault" }));
   }, [settings?.obsidianVaultPath]);
 
   async function save(patch: Partial<JarvisSettingsDTO>) {
     const res = await fetch("/api/jarvis/settings", {
-      method: "PATCH",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(patch),
+      method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify(patch),
     });
-    if (!res.ok) throw new Error("Could not save settings");
+    if (!res.ok) throw new Error((await res.json()).error || "Could not save settings");
     setSettings(await res.json());
   }
 
-  function testVoice() {
-    const text = "Settings are working, sir. I am ready.";
+  async function send(event: FormEvent) {
+    event.preventDefault();
+    const content = input.trim();
+    if (!content || busy) return;
+    setInput(""); setError(""); setMessages(m => [...m, { role: "user", content }]); setBusy(true);
+    try {
+      const res = await fetch("/api/jarvis", {
+        method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ content }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || "J.A.R.V.I.S request failed");
+      setMessages(m => [...m, { role: "assistant", content: data.reply }]);
+      if (settings?.autoSpeak) speak(data.reply);
+    } catch (e) {
+      setError((e as Error).message);
+    } finally { setBusy(false); }
+  }
+
+  function browserSpeak(text: string) {
+    if (!("speechSynthesis" in window)) return;
     const utterance = new SpeechSynthesisUtterance(text);
-    const voice = voices.find((v) => v.voiceURI === settings?.voiceURI);
+    const voice = voices.find(v => v.voiceURI === settings?.voiceURI);
     if (voice) utterance.voice = voice;
     utterance.rate = settings?.rate ?? 1;
     utterance.pitch = settings?.pitch ?? 1;
@@ -55,46 +76,53 @@ export default function JarvisPage() {
     window.speechSynthesis.speak(utterance);
   }
 
+  function speak(text: string) {
+    if (!settings?.customTtsUrl) return browserSpeak(text);
+    fetch("/api/jarvis/tts", {
+      method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ text }),
+    }).then(async r => { if (!r.ok) throw new Error("Custom TTS failed"); return r.blob(); })
+      .then(blob => { const audio = new Audio(URL.createObjectURL(blob)); void audio.play(); })
+      .catch(() => browserSpeak(text));
+  }
+
+  async function uploadVoice(file: File, name: string) {
+    const form = new FormData(); form.set("file", file); form.set("name", name);
+    const res = await fetch("/api/jarvis/voices", { method: "POST", body: form });
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.error || "Upload failed");
+    setProfiles(p => [data, ...p]);
+  }
+
+  async function deleteVoice(id: number) {
+    const res = await fetch("/api/jarvis/voices", {
+      method: "DELETE", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ id }),
+    });
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.error || "Delete failed");
+    setProfiles(p => p.filter(profile => profile.id !== id));
+  }
+
   return (
-    <main className="min-h-screen bg-slate-950 p-6">
+    <main className="min-h-screen bg-slate-950 p-6 text-slate-100">
       <div className="mx-auto flex min-h-[calc(100vh-3rem)] max-w-6xl flex-col overflow-hidden rounded-2xl border border-cyan-500/20 bg-slate-950 shadow-2xl">
         <header className="flex items-center justify-between border-b border-cyan-500/20 px-5 py-4">
-          <div>
-            <div className="text-xs uppercase tracking-[0.3em] text-cyan-500">J.A.R.V.I.S</div>
-            <h1 className="text-xl font-semibold text-slate-100">Personal AI Assistant</h1>
-          </div>
-          <button
-            type="button"
-            aria-label="Open J.A.R.V.I.S settings"
-            onClick={() => setSettingsOpen(true)}
-            className="rounded-lg border border-cyan-500/40 bg-cyan-500/10 px-4 py-2 text-sm font-medium text-cyan-300 transition hover:bg-cyan-500/20 focus:outline-none focus:ring-2 focus:ring-cyan-400"
-          >
-            ⚙ Settings
-          </button>
+          <div><div className="text-xs uppercase tracking-[0.3em] text-cyan-500">J.A.R.V.I.S</div><h1 className="text-xl font-semibold">Personal AI Assistant</h1></div>
+          <button type="button" onClick={() => setSettingsOpen(true)} className="rounded-lg border border-cyan-500/40 bg-cyan-500/10 px-4 py-2 text-sm text-cyan-300 hover:bg-cyan-500/20">⚙ Settings</button>
         </header>
-        <section className="flex flex-1 items-center justify-center p-10 text-center">
-          <div>
-            <div className="mx-auto mb-5 flex h-24 w-24 items-center justify-center rounded-full border border-cyan-400/50 bg-cyan-400/5 text-3xl text-cyan-300 shadow-[0_0_60px_rgba(34,211,238,0.12)]">J</div>
-            <h2 className="text-2xl font-semibold">Systems online</h2>
-            <p className="mt-2 text-sm text-slate-400">Use Settings to configure memory, Ollama, browser voice, and custom TTS.</p>
+        <section className="flex flex-1 flex-col gap-4 p-5">
+          <div className="flex-1 space-y-3 overflow-y-auto rounded-xl border border-slate-800 bg-slate-900/40 p-4">
+            {messages.length === 0 && <div className="flex h-full items-center justify-center text-center text-slate-500"><div><div className="mb-3 text-4xl">J</div><p>Systems online. How may I assist?</p></div></div>}
+            {messages.map((m, i) => <div key={m.id ?? i} className={`flex ${m.role === "user" ? "justify-end" : "justify-start"}`}><div className={`max-w-[85%] whitespace-pre-wrap rounded-2xl px-4 py-3 text-sm ${m.role === "user" ? "bg-cyan-700/40 text-cyan-50" : "bg-slate-800 text-slate-200"}`}>{m.content}</div></div>)}
+            {busy && <div className="text-sm text-cyan-400">J.A.R.V.I.S is thinking…</div>}
           </div>
+          {error && <div className="rounded-lg border border-rose-500/30 bg-rose-500/10 p-3 text-sm text-rose-300">{error}</div>}
+          <form onSubmit={send} className="flex gap-2">
+            <input value={input} onChange={e => setInput(e.target.value)} disabled={busy} placeholder="Ask J.A.R.V.I.S anything…" className="flex-1 rounded-xl border border-slate-700 bg-slate-900 px-4 py-3 outline-none focus:border-cyan-500" />
+            <button disabled={busy || !input.trim()} className="rounded-xl bg-cyan-600 px-5 py-3 font-medium text-white hover:bg-cyan-500 disabled:opacity-50">Send</button>
+          </form>
         </section>
       </div>
-
-      {settings && (
-        <SettingsDrawer
-          open={settingsOpen}
-          onClose={() => setSettingsOpen(false)}
-          settings={settings}
-          vaultStatus={status}
-          voices={voices}
-          profiles={[] as VoiceProfile[]}
-          onSave={save}
-          onUploadVoice={async () => {}}
-          onDeleteVoice={async () => {}}
-          onTestVoice={testVoice}
-        />
-      )}
+      {settings && <SettingsDrawer open={settingsOpen} onClose={() => setSettingsOpen(false)} settings={settings} vaultStatus={status} voices={voices} profiles={profiles} onSave={save} onUploadVoice={uploadVoice} onDeleteVoice={deleteVoice} onTestVoice={() => speak("Settings are working, sir. I am ready.")} />}
     </main>
   );
 }
