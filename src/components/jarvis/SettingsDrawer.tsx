@@ -1,6 +1,7 @@
 "use client";
 
 import { useRef, useState } from "react";
+import { createPortal } from "react-dom";
 import type { JarvisSettingsDTO, VaultStatus, VoiceProfile } from "@/lib/jarvis/types";
 
 type Props = {
