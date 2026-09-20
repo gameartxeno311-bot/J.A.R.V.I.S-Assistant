@@ -36,3 +36,31 @@ export async function searchMemory(vaultPath: string, query: string, limit = 5):
     return "";
   }
 }
+
+/**
+ * Save a binary or text attachment into the Jarvis folder of the configured
+ * Obsidian vault. Accepts a Buffer/Uint8Array, base64 string, or plain text.
+ */
+export async function saveAttachment(
+  vaultPath: string,
+  fileName: string,
+  data: string | Uint8Array,
+): Promise<string> {
+  const folder = path.join(vaultPath, "Jarvis", "Attachments");
+  await fs.mkdir(folder, { recursive: true });
+
+  const safeName = path.basename(fileName).replace(/[<>:"/\\|?*\x00-\x1F]/g, "_");
+  if (!safeName || safeName === "." || safeName === "..") {
+    throw new Error("Invalid attachment filename.");
+  }
+
+  const filePath = path.join(folder, safeName);
+
+  if (typeof data === "string") {
+    await fs.writeFile(filePath, data, "utf8");
+  } else {
+    await fs.writeFile(filePath, data);
+  }
+
+  return filePath;
+}
