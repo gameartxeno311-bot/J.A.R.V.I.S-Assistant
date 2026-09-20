@@ -1,140 +1,46 @@
 "use client";
 
-import { FormEvent, useEffect, useState } from "react";
+import { FormEvent, useEffect, useMemo, useState } from "react";
 import { SettingsDrawer } from "@/components/jarvis/SettingsDrawer";
 import type { JarvisMessage, JarvisSettingsDTO, VaultStatus, VoiceProfile } from "@/lib/jarvis/types";
 
+const memories = ["Project planning","Development environment setup","J.A.R.V.I.S. assistant configuration","Recent assistant conversations"];
+
 export default function JarvisPage() {
-  const [settingsOpen, setSettingsOpen] = useState(false);
-  const [settings, setSettings] = useState<JarvisSettingsDTO | null>(null);
-  const [messages, setMessages] = useState<JarvisMessage[]>([]);
-  const [voices, setVoices] = useState<SpeechSynthesisVoice[]>([]);
-  const [profiles, setProfiles] = useState<VoiceProfile[]>([]);
-  const [status, setStatus] = useState<VaultStatus | null>(null);
-  const [input, setInput] = useState("");
-  const [busy, setBusy] = useState(false);
-  const [error, setError] = useState("");
-
-  useEffect(() => {
-    Promise.all([
-      fetch("/api/jarvis/settings").then(r => r.json()),
-      fetch("/api/jarvis").then(r => r.json()),
-      fetch("/api/jarvis/voices").then(r => r.json()),
-    ]).then(([s, m, p]) => {
-      setSettings(s);
-      setMessages(Array.isArray(m) ? m : []);
-      setProfiles(Array.isArray(p) ? p : []);
-    }).catch(() => setError("Unable to load J.A.R.V.I.S. Check PostgreSQL and the server logs."));
-
-    const loadVoices = () => setVoices(window.speechSynthesis?.getVoices() ?? []);
-    window.speechSynthesis?.addEventListener("voiceschanged", loadVoices);
-    return () => window.speechSynthesis?.removeEventListener("voiceschanged", loadVoices);
-  }, []);
-
-  useEffect(() => {
-    if (!settings?.obsidianVaultPath) return;
-
-    let cancelled = false;
-
-    fetch("/api/jarvis/vault")
-      .then(r => r.json())
-      .then(result => {
-        if (!cancelled) setStatus(result);
-      })
-      .catch(() => {
-        if (!cancelled) setStatus({ ok: false, error: "Unable to check vault" });
-      });
-
-    return () => {
-      cancelled = true;
-    };
-  }, [settings?.obsidianVaultPath]);
-
-  async function save(patch: Partial<JarvisSettingsDTO>) {
-    const res = await fetch("/api/jarvis/settings", {
-      method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify(patch),
-    });
-    if (!res.ok) throw new Error((await res.json()).error || "Could not save settings");
-    setSettings(await res.json());
-  }
-
-  async function send(event: FormEvent) {
-    event.preventDefault();
-    const content = input.trim();
-    if (!content || busy) return;
-    setInput(""); setError(""); setMessages(m => [...m, { role: "user", content }]); setBusy(true);
-    try {
-      const res = await fetch("/api/jarvis", {
-        method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ content }),
-      });
-      const data = await res.json();
-      if (!res.ok) throw new Error(data.error || "J.A.R.V.I.S request failed");
-      setMessages(m => [...m, { role: "assistant", content: data.reply }]);
-      if (settings?.autoSpeak) speak(data.reply);
-    } catch (e) {
-      setError((e as Error).message);
-    } finally { setBusy(false); }
-  }
-
-  function browserSpeak(text: string) {
-    if (!("speechSynthesis" in window)) return;
-    const utterance = new SpeechSynthesisUtterance(text);
-    const voice = voices.find(v => v.voiceURI === settings?.voiceURI);
-    if (voice) utterance.voice = voice;
-    utterance.rate = settings?.rate ?? 1;
-    utterance.pitch = settings?.pitch ?? 1;
-    utterance.volume = settings?.volume ?? 1;
-    window.speechSynthesis.cancel();
-    window.speechSynthesis.speak(utterance);
-  }
-
-  function speak(text: string) {
-    if (!settings?.customTtsUrl) return browserSpeak(text);
-    fetch("/api/jarvis/tts", {
-      method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ text }),
-    }).then(async r => { if (!r.ok) throw new Error("Custom TTS failed"); return r.blob(); })
-      .then(blob => { const audio = new Audio(URL.createObjectURL(blob)); void audio.play(); })
-      .catch(() => browserSpeak(text));
-  }
-
-  async function uploadVoice(file: File, name: string) {
-    const form = new FormData(); form.set("file", file); form.set("name", name);
-    const res = await fetch("/api/jarvis/voices", { method: "POST", body: form });
-    const data = await res.json();
-    if (!res.ok) throw new Error(data.error || "Upload failed");
-    setProfiles(p => [data, ...p]);
-  }
-
-  async function deleteVoice(id: number) {
-    const res = await fetch("/api/jarvis/voices", {
-      method: "DELETE", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ id }),
-    });
-    const data = await res.json();
-    if (!res.ok) throw new Error(data.error || "Delete failed");
-    setProfiles(p => p.filter(profile => profile.id !== id));
-  }
-
-  return (
-    <main className="min-h-screen bg-slate-950 p-6 text-slate-100">
-      <div className="mx-auto flex min-h-[calc(100vh-3rem)] max-w-6xl flex-col overflow-hidden rounded-2xl border border-cyan-500/20 bg-slate-950 shadow-2xl">
-        <header className="flex items-center justify-between border-b border-cyan-500/20 px-5 py-4">
-          <div><div className="text-xs uppercase tracking-[0.3em] text-cyan-500">J.A.R.V.I.S</div><h1 className="text-xl font-semibold">Personal AI Assistant</h1></div>
-          <button type="button" onClick={() => setSettingsOpen(true)} className="rounded-lg border border-cyan-500/40 bg-cyan-500/10 px-4 py-2 text-sm text-cyan-300 hover:bg-cyan-500/20">⚙ Settings</button>
-        </header>
-        <section className="flex flex-1 flex-col gap-4 p-5">
-          <div className="flex-1 space-y-3 overflow-y-auto rounded-xl border border-slate-800 bg-slate-900/40 p-4">
-            {messages.length === 0 && <div className="flex h-full items-center justify-center text-center text-slate-500"><div><div className="mb-3 text-4xl">J</div><p>Systems online. How may I assist?</p></div></div>}
-            {messages.map((m, i) => <div key={m.id ?? i} className={`flex ${m.role === "user" ? "justify-end" : "justify-start"}`}><div className={`max-w-[85%] whitespace-pre-wrap rounded-2xl px-4 py-3 text-sm ${m.role === "user" ? "bg-cyan-700/40 text-cyan-50" : "bg-slate-800 text-slate-200"}`}>{m.content}</div></div>)}
-            {busy && <div className="text-sm text-cyan-400">J.A.R.V.I.S is thinking…</div>}
-          </div>
-          {error && <div className="rounded-lg border border-rose-500/30 bg-rose-500/10 p-3 text-sm text-rose-300">{error}</div>}
-          <form onSubmit={send} className="flex gap-2">
-            <input value={input} onChange={e => setInput(e.target.value)} disabled={busy} placeholder="Ask J.A.R.V.I.S anything…" className="flex-1 rounded-xl border border-slate-700 bg-slate-900 px-4 py-3 outline-none focus:border-cyan-500" />
-            <button disabled={busy || !input.trim()} className="rounded-xl bg-cyan-600 px-5 py-3 font-medium text-white hover:bg-cyan-500 disabled:opacity-50">Send</button>
-          </form>
-        </section>
-      </div>
-      {settings && <SettingsDrawer open={settingsOpen} onClose={() => setSettingsOpen(false)} settings={settings} vaultStatus={status ?? (settings?.obsidianVaultPath ? null : { ok: false, error: "Not connected" })} voices={voices} profiles={profiles} onSave={save} onUploadVoice={uploadVoice} onDeleteVoice={deleteVoice} onTestVoice={() => speak("Settings are working, sir. I am ready.")} />}
-    </main>
-  );
+  const [settingsOpen,setSettingsOpen]=useState(false),[settings,setSettings]=useState<JarvisSettingsDTO|null>(null),[messages,setMessages]=useState<JarvisMessage[]>([]),[voices,setVoices]=useState<SpeechSynthesisVoice[]>([]),[profiles,setProfiles]=useState<VoiceProfile[]>([]),[status,setStatus]=useState<VaultStatus|null>(null),[input,setInput]=useState(""),[busy,setBusy]=useState(false),[error,setError]=useState(""),[listening,setListening]=useState(false),[playing,setPlaying]=useState(false);
+  const userName=settings?.userName||"User";
+  const greeting=useMemo(()=>{const h=new Date().getHours();return h<12?"Good morning":h<18?"Good afternoon":"Good evening"},[]);
+  useEffect(()=>{Promise.all([fetch("/api/jarvis/settings").then(r=>r.json()),fetch("/api/jarvis").then(r=>r.json()),fetch("/api/jarvis/voices").then(r=>r.json())]).then(([s,m,p])=>{setSettings(s);setMessages(Array.isArray(m)?m:[]);setProfiles(Array.isArray(p)?p:[])}).catch(()=>setError("Unable to load J.A.R.V.I.S. Check PostgreSQL and the server logs."));const loadVoices=()=>setVoices(window.speechSynthesis?.getVoices()??[]);loadVoices();window.speechSynthesis?.addEventListener("voiceschanged",loadVoices);return()=>window.speechSynthesis?.removeEventListener("voiceschanged",loadVoices)},[]);
+  useEffect(()=>{if(!settings?.obsidianVaultPath)return;let cancelled=false;fetch("/api/jarvis/vault").then(r=>r.json()).then(x=>{if(!cancelled)setStatus(x)}).catch(()=>{if(!cancelled)setStatus({ok:false,error:"Unable to check vault"})});return()=>{cancelled=true}},[settings?.obsidianVaultPath]);
+  async function save(patch:Partial<JarvisSettingsDTO>){const r=await fetch("/api/jarvis/settings",{method:"PATCH",headers:{"Content-Type":"application/json"},body:JSON.stringify(patch)});if(!r.ok)throw new Error((await r.json()).error||"Could not save settings");setSettings(await r.json())}
+  async function send(e:FormEvent){e.preventDefault();const content=input.trim();if(!content||busy)return;setInput("");setError("");setMessages(m=>[...m,{role:"user",content}]);setBusy(true);try{const r=await fetch("/api/jarvis",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({content})});const d=await r.json();if(!r.ok)throw new Error(d.error||"J.A.R.V.I.S request failed");setMessages(m=>[...m,{role:"assistant",content:d.reply}]);if(settings?.autoSpeak)speak(d.reply)}catch(e){setError((e as Error).message)}finally{setBusy(false)}}
+  function browserSpeak(text:string){if(!("speechSynthesis"in window))return;const u=new SpeechSynthesisUtterance(text),v=voices.find(x=>x.voiceURI===settings?.voiceURI);if(v)u.voice=v;u.rate=settings?.rate??1;u.pitch=settings?.pitch??1;u.volume=settings?.volume??1;window.speechSynthesis.cancel();window.speechSynthesis.speak(u)}
+  function speak(text:string){if(!settings?.customTtsUrl){setPlaying(true);browserSpeak(text);window.setTimeout(()=>setPlaying(false),Math.max(1800,text.length*28));return}setPlaying(true);fetch("/api/jarvis/tts",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({text})}).then(async r=>{if(!r.ok)throw new Error("Custom TTS failed");return r.blob()}).then(blob=>{const a=new Audio(URL.createObjectURL(blob));a.onended=()=>setPlaying(false);void a.play()}).catch(()=>{setPlaying(false);browserSpeak(text)})}
+  async function uploadVoice(file:File,name:string){const f=new FormData();f.set("file",file);f.set("name",name);const r=await fetch("/api/jarvis/voices",{method:"POST",body:f}),d=await r.json();if(!r.ok)throw new Error(d.error||"Upload failed");setProfiles(p=>[d,...p])}
+  async function deleteVoice(id:number){const r=await fetch("/api/jarvis/voices",{method:"DELETE",headers:{"Content-Type":"application/json"},body:JSON.stringify({id})}),d=await r.json();if(!r.ok)throw new Error(d.error||"Delete failed");setProfiles(p=>p.filter(x=>x.id!==id))}
+  function startListening(){const SR=(window as Window&{SpeechRecognition?:new()=>SpeechRecognition}).SpeechRecognition;if(!SR){setError("Speech recognition is not supported by this browser.");return}const rec=new SR();rec.lang="en-US";rec.interimResults=false;rec.onstart=()=>setListening(true);rec.onend=()=>setListening(false);rec.onerror=()=>{setListening(false);setError("Microphone or speech recognition error.")};rec.onresult=e=>setInput(e.results[0]?.[0]?.transcript||"");rec.start()}
+  const vaultConnected=Boolean(settings?.obsidianVaultPath&&status?.ok),llmOnline=!error||!error.toLowerCase().includes("postgresql");
+  return <main className="jarvis-app">
+    <aside className="jarvis-sidebar">
+      <div className="brand"><div className="reactor-logo"><span/></div><div><div className="brand-name">J.A.R.V.I.S.</div><div className="brand-subtitle">AI ASSISTANT</div><div className="brand-tagline">Your Mind. My Priority.</div></div></div>
+      <nav className="main-nav"><button className="nav-item active"><span>◌</span>Chat</button><button className="nav-item" onClick={()=>setSettingsOpen(true)}><span>◈</span>Memory</button><button className="nav-item" onClick={()=>setSettingsOpen(true)}><span>▱</span>Vault</button><button className="nav-item" onClick={()=>setSettingsOpen(true)}><span>≋</span>Voice</button><button className="nav-item" onClick={()=>setSettingsOpen(true)}><span>⚙</span>Settings</button></nav>
+      <div className="system-status"><div className="section-label">System Status</div><div className="online"><i/>All Systems Online</div><div className="status-list"><div><span>◫</span><label>LLM Connection</label><b>{llmOnline?"Online":"Offline"}</b></div><div><span>▤</span><label>Database</label><b>Online</b></div><div><span>◈</span><label>Obsidian Vault</label><b>{vaultConnected?"Connected":"Not Connected"}</b></div><div><span>♩</span><label>Voice Engine</label><b>Online</b></div></div></div>
+      <div className="sidebar-quote"><div className="ai-portrait"><div/></div><div><em>“Knowledge is power,<br/>but understanding<br/>is freedom.”</em><small>— J.A.R.V.I.S.</small></div></div>
+    </aside>
+    <section className="center-column">
+      <header className="welcome-banner"><div className="hud-rings"><span/><span/><span/><i/></div><div className="welcome-copy"><h1>{greeting}, {userName}.</h1><p>I'm J.A.R.V.I.S. — your AI assistant. How can I help you today?</p></div></header>
+      <section className="chat-shell"><div className="messages">
+        {messages.length===0?<div className="empty-state"><div className="mini-reactor">✦</div><p>Systems online. How may I assist?</p></div>:messages.map((m,i)=><div key={m.id??i} className={m.role==="user"?"message-row user-row":"message-row"}>{m.role!=="user"&&<div className="message-orb">✦</div>}<div className={m.role==="user"?"bubble user-bubble":"bubble assistant-bubble"}><div className="bubble-role">{m.role==="user"?userName:"J.A.R.V.I.S."}</div><div>{m.content}</div><small>{new Date().toLocaleTimeString([],{hour:"numeric",minute:"2-digit"})}</small></div></div>)}{busy&&<div className="message-row"><div className="message-orb">✦</div><div className="bubble assistant-bubble"><div className="bubble-role">J.A.R.V.I.S.</div><div className="thinking">Processing<span>.</span><span>.</span><span>.</span></div></div></div>}
+      </div>{error&&<div className="error-bar">{error}</div>}<form onSubmit={send} className="composer"><button type="button" className="composer-button" onClick={()=>setSettingsOpen(true)}>⌕</button><input value={input} onChange={e=>setInput(e.target.value)} disabled={busy} placeholder="Type your message..."/><button type="button" className={listening?"composer-button active-control":"composer-button"} onClick={startListening}>♩</button><button type="button" className={playing?"composer-button active-control":"composer-button"} onClick={()=>speak("I am ready to assist.")}>≋</button><button disabled={busy||!input.trim()} className="send-button">➤</button></form></section>
+    </section>
+    <aside className="right-column">
+      <section className="profile-card"><div className="profile-avatar"><div/></div><div><strong>{userName}</strong><small><i/>Online</small></div><button className="gear" onClick={()=>setSettingsOpen(true)}>⚙</button></section>
+      <section className="side-card"><div className="side-title"><span>◈</span>Quick Actions</div><div className="quick-grid"><button onClick={()=>setSettingsOpen(true)}><b>⌕</b>Search Vault</button><button onClick={()=>setSettingsOpen(true)}><b>♩</b>Upload Voice</button><button onClick={()=>setSettingsOpen(true)}><b>≋</b>Manage Voices</button><button onClick={()=>setSettingsOpen(true)}><b>⚙</b>Open Settings</button></div></section>
+      <section className="side-card memory-card"><div className="side-title"><span>◈</span>Active Memory<button onClick={()=>setSettingsOpen(true)}>View All</button></div><div className="memory-heading">Recent Context</div><ul>{memories.map(m=><li key={m}>{m}</li>)}</ul></section>
+      <section className="side-card voice-card"><div className="side-title"><span>≋</span>Voice Profile</div><div className="voice-active">+ Custom Voice Active</div><select value={settings?.voiceURI??""} onChange={e=>void save({voiceURI:e.target.value})}><option value="">J.A.R.V.I.S. (Default)</option>{voices.map(v=><option key={v.voiceURI} value={v.voiceURI}>{v.name}</option>)}</select><div className="wave-row"><button onClick={()=>speak("Voice test complete. I am J.A.R.V.I.S.")}>▶</button><div className={playing?"wave active":"wave"}>{Array.from({length:14}).map((_,i)=><i key={i}/>)}</div></div><button className="manage-button" onClick={()=>setSettingsOpen(true)}>Manage Voices</button></section>
+      <section className="side-card model-card"><div className="side-title"><span>◈</span>Model</div><select disabled><option>Configured Provider</option></select><div className="model-status"><i/>Local AI • Fast • Private</div></section>
+    </aside>
+    {settings&&<SettingsDrawer open={settingsOpen} onClose={()=>setSettingsOpen(false)} settings={settings} vaultStatus={status??(settings.obsidianVaultPath?null:{ok:false,error:"Not connected"})} voices={voices} profiles={profiles} onSave={save} onUploadVoice={uploadVoice} onDeleteVoice={deleteVoice} onTestVoice={()=>speak("Settings are working, sir. I am ready.")}/>}
+  </main>;
 }
+type SpeechRecognition={lang:string;interimResults:boolean;onstart:()=>void;onend:()=>void;onerror:()=>void;onresult:(event:{results:ArrayLike<ArrayLike<{transcript:string}>>})=>void;start:()=>void};
