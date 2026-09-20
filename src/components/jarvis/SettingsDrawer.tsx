@@ -133,6 +133,11 @@ export function SettingsDrawer({
             <input ref={fileRef} type="file" accept="audio/*" className="w-full text-xs" />
             <button onClick={async () => { const file=fileRef.current?.files?.[0]; if (!file) return; await onUploadVoice(file, voiceName || file.name); if (fileRef.current) fileRef.current.value=""; setVoiceName(""); }} className="w-full rounded-lg bg-slate-800 px-3 py-2 text-xs font-medium text-cyan-300 hover:bg-slate-700">Upload sample</button>
           </div>
+          <select value={settings.activeVoiceProfileId ?? ""} onChange={(e) => onSave({ activeVoiceProfileId: e.target.value })} className="mb-3 w-full rounded-lg border border-slate-700 bg-slate-900 px-3 py-2 text-sm outline-none focus:border-cyan-500">
+            <option value="">Use server default reference voice</option>
+            {profiles.map((p) => <option key={p.id} value={p.id}>XTTS: {p.name}</option>)}
+          </select>
+          <p className="mb-3 text-[11px] leading-4 text-slate-500">When a profile is selected, the Coqui XTTS-v2 server uses that uploaded sample for voice cloning.</p>
           <ul className="space-y-2">
             {profiles.map((p) => <li key={p.id} className="flex items-center justify-between rounded-lg border border-slate-800 bg-slate-900 px-3 py-2 text-xs"><div><p className="font-medium text-slate-200">{p.name}</p><audio controls src={p.filePath} className="mt-1 h-7 w-40"/></div><button onClick={() => onDeleteVoice(p.id)} className="text-rose-400 hover:text-rose-300">Delete</button></li>)}
             {profiles.length === 0 && <li className="text-xs text-slate-500">No custom voice samples yet.</li>}
