@@ -35,9 +35,11 @@ export function SettingsDrawer({
   const [ollamaModel, setOllamaModel] = useState(settings?.ollamaModel ?? "llama3.1");
   const [voiceName, setVoiceName] = useState("");
   const [saving, setSaving] = useState(false);
+  const [ollamaStatus, setOllamaStatus] = useState<{ok:boolean;model?:string;models?:string[];error?:string}>({ok:false});
   const fileRef = useRef<HTMLInputElement>(null);
 
   if (!open || !settings) return null;
+  const checkOllama = async () => { const r = await fetch("/api/jarvis/ollama"); const data = await r.json(); setOllamaStatus(data); if (data.ok && data.models?.length && !data.models.includes(ollamaModel)) setOllamaModel(data.models[0]); };
 
   return (
     <div className="settings-overlay">
@@ -100,7 +102,7 @@ export function SettingsDrawer({
           <input value={ollamaUrl} onChange={(e) => setOllamaUrl(e.target.value)} className="settings-input" />
           <label className="settings-label">Ollama model</label>
           <input value={ollamaModel} onChange={(e) => setOllamaModel(e.target.value)} className="settings-input" />
-          <button disabled={saving} onClick={async () => { setSaving(true); await onSave({ ollamaUrl, ollamaModel }); setSaving(false); }} className="settings-button primary">Save</button>
+          <div className="settings-row"><span className={`text-xs ${ollamaStatus.ok ? "text-emerald-400" : "text-amber-400"}`}>{ollamaStatus.ok ? `● Connected • ${ollamaStatus.model || ollamaModel}` : `● ${ollamaStatus.error || "Not tested"}`}</span><div className="settings-actions"><button disabled={saving} onClick={checkOllama} className="settings-button secondary">Test Ollama</button><button disabled={saving} onClick={async () => { setSaving(true); try { await onSave({ ollamaUrl, ollamaModel }); await checkOllama(); } finally { setSaving(false); } }} className="settings-button primary">Save</button></div></div>
         </section>
 
         <section className="settings-section">
